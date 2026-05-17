@@ -1,116 +1,79 @@
-function $(id) {
-  return document.getElementById(id);
-}
+const express = require('express');
+const cors = require('cors');
+const puppeteer = require('puppeteer');
 
-function setStatus(html) {
-  $('status').innerHTML = html;
-}
+const app = express();
 
-function loading(msg) {
-  setStatus(`
-    <div class="loading">
-      <div class="spin"></div>
-      <span>${msg}</span>
-    </div>
-  `);
-}
+app.use(cors());
+app.use(express.json());
 
-function showErr(msg) {
-  setStatus(`
-    <div class="err-box">
-      ${msg}
-    </div>
-  `);
-}
+app.post('/api', async (req, res) => {
+  const url = req.body.url;
 
-function isSnapUrl(u) {
-  try {
-    return /snapchat\.com|snap\.com/.test(new URL(u).hostname);
-  } catch {
-    return false;
-  }
-}
-
-function esc(s) {
-  return String(s || '')
-    .replace(/&/g,'&amp;')
-    .replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;');
-}
-
-async function handleFetch() {
-
-  const raw = $('snapUrl').value.trim();
-  const btn = $('fetchBtn');
-
-  if (!raw) {
-    showErr('Please paste Snapchat URL');
-    return;
+  if (!url) {
+    return res.json({ error: 'No URL provided' });
   }
 
-  if (!isSnapUrl(raw)) {
-    showErr('Invalid Snapchat URL');
-    return;
-  }
-
-  btn.disabled = true;
-
-  loading('Fetching video using server...');
+  let browser;
 
   try {
+    browser = await puppeteer.launch({
+      headless: 'new',
 
-    const res = await fetch('https://snapsave-backend-ekhr.onrender.com/api', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ url: raw })
+      // ✅ IMPORTANT FIX FOR RENDER
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--single-process',
+      ],
     });
 
-    const data = await res.json();
+    const page = await browser.newPage();
 
-    if (!data.success) {
-      showErr(data.error || 'No video found');
-      btn.disabled = false;
-      return;
+    const videoUrls = [];
+
+    await page.setRequestInterception(true);
+    page.on('request', req => req.continue());
+
+    page.on('response', async response => {
+      const resUrl = response.url();
+      const ct = response.headers()['content-type'] || '';
+
+      if (
+        ct.includes('video') ||
+        resUrl.match(/\.mp4|\.m3u8|\.webm/i)
+      ) {
+        if (!videoUrls.includes(resUrl)) {
+          videoUrls.push(resUrl);
+        }
+      }
+    });
+
+    await page.goto(url, {
+      waitUntil: 'networkidle2',
+      timeout: 60000
+    });
+
+    await new Promise(r => setTimeout(r, 5000));
+
+    if (videoUrls.length === 0) {
+      return res.json({ error: 'No video found' });
     }
 
-    setStatus(`
-      <div class="result-wrap">
-
-        <video class="single-media" controls playsinline preload="metadata">
-          <source src="${esc(data.videoUrl)}" type="video/mp4">
-        </video>
-
-        <div class="single-foot">
-
-          <div class="single-title">Snapchat Video</div>
-
-          <div class="actions">
-            <a href="${esc(data.videoUrl)}" download="snapvideo.mp4" class="btn-dl">
-              Download Video
-            </a>
-          </div>
-
-        </div>
-
-      </div>
-    `);
+    return res.json({
+      success: true,
+      videoUrl: videoUrls[0]
+    });
 
   } catch (e) {
-    showErr('Server error: ' + e.message);
+    return res.json({ error: e.message });
+  } finally {
+    if (browser) await browser.close();
   }
-
-  btn.disabled = false;
-}
-
-window.addEventListener('DOMContentLoaded', () => {
-
-  $('fetchBtn').addEventListener('click', handleFetch);
-
-  $('snapUrl').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') handleFetch();
-  });
-
 });
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log('Server running'));
