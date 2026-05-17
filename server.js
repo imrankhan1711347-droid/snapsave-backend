@@ -1,3 +1,5 @@
+process.env.PUPPETEER_CACHE_DIR = "/opt/render/.cache/puppeteer";
+
 const express = require('express');
 const cors = require('cors');
 const puppeteer = require('puppeteer');
@@ -20,10 +22,13 @@ app.post('/api', async (req, res) => {
   try {
 
     browser = await puppeteer.launch({
-      headless: 'new',
+      headless: "new",
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu'
       ]
     });
 
@@ -42,33 +47,39 @@ app.post('/api', async (req, res) => {
 
       if (
         ct.includes('video') ||
-        resUrl.match(/\.mp4|\.m3u8|\.webm/i)
+        resUrl.match(/\.mp4|\.m3u8|\.webm|sc-cdn\.net/i)
       ) {
-
         if (!videoUrls.includes(resUrl)) {
           videoUrls.push(resUrl);
         }
       }
     });
 
+    await page.setUserAgent(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+    );
+
     await page.goto(url, {
       waitUntil: 'networkidle2',
-      timeout: 30000
+      timeout: 60000
     });
 
     await new Promise(r => setTimeout(r, 5000));
 
-    if (videoUrls.length === 0) {
+    const finalVideos = [...new Set(videoUrls)].filter(u =>
+      u.startsWith('http') &&
+      !u.match(/\.(jpg|jpeg|png|webp|gif)/i)
+    );
 
+    if (finalVideos.length === 0) {
       return res.json({
-        error: 'No video found'
+        error: 'No video found (Snap may be private or blocked)'
       });
-
     }
 
     return res.json({
       success: true,
-      videoUrl: videoUrls[0]
+      videoUrl: finalVideos[0]
     });
 
   } catch (e) {
