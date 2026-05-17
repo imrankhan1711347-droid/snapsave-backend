@@ -3,34 +3,26 @@ const cors = require('cors');
 const puppeteer = require('puppeteer');
 
 const app = express();
-
 app.use(cors());
 app.use(express.json());
 
 app.post('/api', async (req, res) => {
   const url = req.body.url;
-
-  if (!url) {
-    return res.json({ error: 'No URL provided' });
-  }
+  if (!url) return res.json({ error: 'No URL provided' });
 
   let browser;
 
   try {
-
     browser = await puppeteer.launch({
       headless: 'new',
 
-      // ✅ CRITICAL FIX (Render Chrome path auto detect)
-      executablePath: process.env.CHROME_PATH || undefined,
-
+      // ✅ IMPORTANT FIX (THIS is the real solution)
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--single-process',
-        '--no-zygote'
-      ]
+      ],
     });
 
     const page = await browser.newPage();
@@ -40,38 +32,33 @@ app.post('/api', async (req, res) => {
     await page.setRequestInterception(true);
     page.on('request', req => req.continue());
 
-    page.on('response', async response => {
-      const resUrl = response.url();
+    page.on('response', async (response) => {
+      const u = response.url();
       const ct = response.headers()['content-type'] || '';
 
-      if (
-        ct.includes('video') ||
-        resUrl.match(/\.mp4|\.m3u8|\.webm/i)
-      ) {
-        if (!videoUrls.includes(resUrl)) {
-          videoUrls.push(resUrl);
-        }
+      if (ct.includes('video') || u.match(/\.mp4|\.m3u8|\.webm/i)) {
+        if (!videoUrls.includes(u)) videoUrls.push(u);
       }
     });
 
     await page.goto(url, {
       waitUntil: 'networkidle2',
-      timeout: 60000
+      timeout: 60000,
     });
 
     await new Promise(r => setTimeout(r, 5000));
 
-    if (videoUrls.length === 0) {
+    if (!videoUrls.length) {
       return res.json({ error: 'No video found' });
     }
 
-    return res.json({
+    res.json({
       success: true,
-      videoUrl: videoUrls[0]
+      videoUrl: videoUrls[0],
     });
 
   } catch (e) {
-    return res.json({ error: e.message });
+    res.json({ error: e.message });
   } finally {
     if (browser) await browser.close();
   }
