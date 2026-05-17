@@ -17,18 +17,20 @@ app.post('/api', async (req, res) => {
   let browser;
 
   try {
+
     browser = await puppeteer.launch({
       headless: 'new',
 
-      // ✅ IMPORTANT FIX FOR RENDER
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      // ✅ CRITICAL FIX (Render Chrome path auto detect)
+      executablePath: process.env.CHROME_PATH || undefined,
 
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--single-process',
-      ],
+        '--no-zygote'
+      ]
     });
 
     const page = await browser.newPage();
